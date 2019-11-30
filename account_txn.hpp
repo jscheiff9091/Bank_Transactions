@@ -49,4 +49,22 @@ Two phase locking funds transfer function.
 void two_phase_transfer(int txn_number, int acct1, int acct2, int xfer_amnt, pthread_mutex_t* acct_locks);
 
 
+/*
+SW Transactions thread main.
+*/
+void* sw_txn_main(void* args);
+
+
+/*
+SW Transactions balance query function.
+*/
+void sw_txn_balance_query(int txn_number, int acct1);
+
+
+/*
+SW Transaction funds transfer function.
+*/
+void sw_txn_transfer(int txn_number, int acct1, int acct2, int xfer_amnt);
+
+
 #endif

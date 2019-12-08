@@ -2,17 +2,17 @@
 #include <fstream>
 #include <sstream>
 #include <string.h>
-#include <queue>
 #include "main.hpp"
 #include "account_txn.hpp"
 
 /* Global Variables */
 Account_t bank_accts[NUM_ACCOUNTS];
+Account_SWHW_t swhw_bank_accts[NUM_ACCOUNTS];
 Command_Line_Args_t cmd_line_args;
 pthread_mutex_t txn_q_lock;
 pthread_mutex_t io_lock;                  //Used in some cases
 queue<Txn_t> txn_q;
-//atomic<bool> wait_for_txn;
+atomic<int> global_version_clock;
 
 
 using namespace std;
@@ -24,11 +24,12 @@ int main(int argc, char** argv) {
     cout << "Jacob Steven Scheiffler 3" << endl;
     return 0;
   }
-  
-  init_acct_balances(argv);            //Initialize Accounts
 
+  init_acct_balances(argv);            //Initialize Accounts
   init_txn_queue(argv);                //Initialize Transaction Queue
 
+
+  
   //Execute transactions
   if(cmd_line_args.txn_implement == SGL) {          //Use Single Global lock
     pthread_mutex_t sgl;                            //Create Single Global lock and threads
@@ -45,18 +46,19 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) {     //Join Threads
       pthread_join(threads[i], NULL);
     }
-
+    
     pthread_mutex_destroy(&sgl);                             //Clean Up
     pthread_mutex_destroy(&txn_q_lock);
   }
   else if(cmd_line_args.txn_implement == Two_Phase) {     //Two phase locking implementation
-    pthread_mutex_t acct_locks[NUM_ACCOUNTS + 1];         //Create locks and threads
+    pthread_mutex_t acct_locks[NUM_ACCOUNTS];         //Create locks and threads
     pthread_t threads[cmd_line_args.num_threads];
 
-    for(int i = 0; i < NUM_ACCOUNTS+1; i++) {             //Initialize locks
+    for(int i = 0; i < NUM_ACCOUNTS; i++) {             //Initialize locks
       pthread_mutex_init(&acct_locks[i], NULL);
     }
     pthread_mutex_init(&txn_q_lock, NULL);
+    pthread_mutex_init(&io_lock, NULL);
 
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch threads
       pthread_create(&threads[i], NULL, &two_phase_main, &acct_locks);
@@ -71,11 +73,12 @@ int main(int argc, char** argv) {
       pthread_mutex_destroy(&acct_locks[i]);
     }
     pthread_mutex_destroy(&txn_q_lock);
+    pthread_mutex_destroy(&io_lock);
   }
   else if(cmd_line_args.txn_implement == SW_Txn) {       //Software transactional memory implementation
     pthread_t threads[cmd_line_args.num_threads];        //Create thread variables
 
-    pthread_mutex_init(&iolock, NULL);                   //Initialize I/O Lock and Txn Queue Lock
+    pthread_mutex_init(&io_lock, NULL);                   //Initialize I/O Lock and Txn Queue Lock
     pthread_mutex_init(&txn_q_lock, NULL);
 
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch Threads
@@ -91,29 +94,54 @@ int main(int argc, char** argv) {
   }
   else if(cmd_line_args.txn_implement == HW_Txn) {       //Hardware transactional memory implementation
     pthread_t threads[cmd_line_args.num_threads];        //Create thread objects
-    pthread_mutex_t fallback_lock;
+    Version_Lock fallback_lock;
     
-    pthread_mutex_init(&fallback_lock);                  //Initialize IO lock and transaction queue lock
-    pthread_mutex_init(&txn_q_lock);
-    pthread_mutex_init(&io_lock);
+    pthread_mutex_init(&txn_q_lock, NULL);               //Initialize IO lock and transaction queue lock
+    pthread_mutex_init(&io_lock, NULL);
 
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch Threads
       pthread_create(&threads[i], NULL, &hw_txn_main, &fallback_lock);
     }
-
+    
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Join threads
       pthread_join(threads[i], NULL);
     }
 
-    pthread_mutex_destroy(&fallback_lock);               //Clean up
-    pthread_mutex_destroy(&txn_q_lock);
+    pthread_mutex_destroy(&txn_q_lock);                  //Clean up
     pthread_mutex_destroy(&io_lock);
   }
+  else if(cmd_line_args.txn_implement == Optimistic) {
+    pthread_t threads[cmd_line_args.num_threads];        //Create threads objects
+    
+    pthread_mutex_init(&txn_q_lock, NULL);               //Initialize variables
+    pthread_mutex_init(&io_lock, NULL);
+    global_version_clock.store(GLOBAL_VERSION_INITIAL);
+    
+    for(int i = 0;  i < cmd_line_args.num_threads; i++) {  //Launch Threads
+      pthread_create(&threads[i], NULL, &optimistic_main, NULL);
+    }
 
+    for(int i = 0; i < cmd_line_args.num_threads; i++) {   //Join Threads
+      pthread_join(threads[i], NULL); 
+    }
+
+    pthread_mutex_destroy(&txn_q_lock);                   //Clean up
+    pthread_mutex_destroy(&io_lock);
+
+  }
+
+  
 
   if(cmd_line_args.print_final_balance) {                //Output account balances if necessary
-    for(int i = 0; i < NUM_ACCOUNTS; i++) {
-      cout << bank_accts[i].acct_num << ": $" << bank_accts[i].balance << endl;
+    if(cmd_line_args.txn_implement == HW_Txn || cmd_line_args.txn_implement == SW_Txn) {
+      for(int i = 0; i < NUM_ACCOUNTS; i++) {
+	cout << swhw_bank_accts[i].acct_num << ": $" << swhw_bank_accts[i].balance << endl;
+      }
+    }
+    else {
+      for(int i = 0; i < NUM_ACCOUNTS; i++) {
+	cout << bank_accts[i].acct_num << ": $" << bank_accts[i].balance << endl;
+      }
     }
   }
   else if(cmd_line_args.output_to_file) {                //Print final account values to file
@@ -121,10 +149,17 @@ int main(int argc, char** argv) {
     final_balance.open(argv[cmd_line_args.outfile_place]);
 
     if(final_balance.is_open()) {                        //Check if outfile stream opened successful
-      for(int i = 0; i < NUM_ACCOUNTS; i++) {            //write balances to outfile stream
-	final_balance << bank_accts[i].acct_num << ": $" << bank_accts[i].balance << endl;
+      if(cmd_line_args.txn_implement == HW_Txn || cmd_line_args.txn_implement == SW_Txn) {
+	for(int i = 0; i < NUM_ACCOUNTS; i++) {            //write balances to outfile stream
+	  final_balance << swhw_bank_accts[i].acct_num << ": $" << swhw_bank_accts[i].balance << endl;
+	}
       }
-
+      else {
+	for(int i = 0; i < NUM_ACCOUNTS; i++) {            //write balances to outfile stream
+	  final_balance << bank_accts[i].acct_num << ": $" << bank_accts[i].balance << endl;
+	}
+      }
+      
       final_balance.close();                             //Close outfile stream
     }
     else {                                               //File stream not open
@@ -220,40 +255,80 @@ void get_cmd_line_args(int argc, char** argv) {
  For each account in the bank initialize to default value or user defined account values  
 */
 void init_acct_balances(char** argv) {
-  if(cmd_line_args.acct_init) {                    //User specified file with initial account balances
-    ifstream acct_balance_file;                    //initialize data stream
-    acct_balance_file.open(argv[cmd_line_args.acct_file_place]);
+  if(cmd_line_args.txn_implement == HW_Txn || cmd_line_args.txn_implement == SW_Txn) {
+    if(cmd_line_args.acct_init) {                    //User specified file with initial account balances
+      ifstream acct_balance_file;                    //initialize data stream
+      acct_balance_file.open(argv[cmd_line_args.acct_file_place]);
 
-    if(acct_balance_file.is_open()) {              //File opened succesfully?
-      string balance_init;                         //init stream variables
-      int i = 0;
+      if(acct_balance_file.is_open()) {              //File opened succesfully?
+	string balance_init;                         //init stream variables
+	int i = 0;
       
-      //get each account value and limit number of balances to the number of accounts in the bank
-      while(getline(acct_balance_file, balance_init) && i < NUM_ACCOUNTS) {
-	bank_accts[i].acct_num = i;
-	bank_accts[i].balance = stoi(balance_init);
-	i++;
-      }
+	//get each account value and limit number of balances to the number of accounts in the bank
+	while(getline(acct_balance_file, balance_init) && i < NUM_ACCOUNTS) {
+	  swhw_bank_accts[i].acct_num = i;
+	  swhw_bank_accts[i].balance = stoi(balance_init);
+	  i++;
+	}
 
-      //Check to make sure all account balances have been initialized (will fall through if account limit reached)
-      while(i < NUM_ACCOUNTS) {
-	bank_accts[i].acct_num = i;
-	bank_accts[i].balance = DEFAULT_BALANCE;
-	i++;
-      }
+	//Check to make sure all account balances have been initialized (will fall through if account limit reached)
+	while(i < NUM_ACCOUNTS) {
+	  swhw_bank_accts[i].acct_num = i;
+	  swhw_bank_accts[i].balance = DEFAULT_BALANCE;
+	  i++;
+	}
 
-      acct_balance_file.close();                   //Close Data stream
+	acct_balance_file.close();                   //Close Data stream
+      }
+      else {                                         //User file not found
+	cout << "Unable to open account initialization file." << endl;
+	exit(-1);
+      }
     }
-    else {                                         //User file not found
-      cout << "Unable to open account initialization file." << endl;
-      exit(-1);
+    else {
+      //Account balance initialization file not passed, set each account to default value
+      for(int i = 0; i < NUM_ACCOUNTS; i++) {
+	swhw_bank_accts[i].acct_num = i;
+	swhw_bank_accts[i].balance = DEFAULT_BALANCE;
+      }
     }
   }
   else {
-    //Account balance initialization file not passed, set each account to default value
-    for(int i = 0; i < NUM_ACCOUNTS; i++) {
-      bank_accts[i].acct_num = i;
-      bank_accts[i].balance = DEFAULT_BALANCE;
+    if(cmd_line_args.acct_init) {                    //User specified file with initial account balances
+      ifstream acct_balance_file;                    //initialize data stream
+      acct_balance_file.open(argv[cmd_line_args.acct_file_place]);
+
+      if(acct_balance_file.is_open()) {              //File opened succesfully?
+	string balance_init;                         //init stream variables
+	int i = 0;
+      
+	//get each account value and limit number of balances to the number of accounts in the bank
+	while(getline(acct_balance_file, balance_init) && i < NUM_ACCOUNTS) {
+	  bank_accts[i].acct_num = i;
+	  bank_accts[i].balance.store(stoi(balance_init));
+	  i++;
+	}
+
+	//Check to make sure all account balances have been initialized (will fall through if account limit reached)
+	while(i < NUM_ACCOUNTS) {
+	  bank_accts[i].acct_num = i;
+	  bank_accts[i].balance.store(DEFAULT_BALANCE);
+	  i++;
+	}
+
+	acct_balance_file.close();                   //Close Data stream
+      }
+      else {                                         //User file not found
+	cout << "Unable to open account initialization file." << endl;
+	exit(-1);
+      }
+    }
+    else {
+      //Account balance initialization file not passed, set each account to default value
+      for(int i = 0; i < NUM_ACCOUNTS; i++) {
+	bank_accts[i].acct_num = i;
+	bank_accts[i].balance.store(DEFAULT_BALANCE);
+      }
     }
   }
 }

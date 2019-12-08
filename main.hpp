@@ -4,11 +4,14 @@
 using namespace std;
 
 #include <queue>
+#include <atomic>
+#include "version_lock.hpp"
 
 /* Defines */
-#define NUM_ACCOUNTS          100
-#define DEFAULT_NUM_THREADS   6
-#define DEFAULT_BALANCE       50
+#define NUM_ACCOUNTS            100
+#define DEFAULT_NUM_THREADS     6
+#define DEFAULT_BALANCE         10000
+#define GLOBAL_VERSION_INITIAL  1
 
 /* Typedefs */
 typedef enum
@@ -19,12 +22,6 @@ typedef enum
   HW_Txn,
   Optimistic
 }TXN_Implementation_t;
-
-typedef struct
-{
-  int acct_num;
-  int balance;
-}Account_t;
 
 typedef struct {
   bool name_option;          //Print name?
@@ -53,13 +50,28 @@ typedef struct {
   int xfer_amnt;
 }Txn_t;
 
+typedef struct
+{
+  int acct_num;
+  atomic<int> balance;
+  Version_Lock acct_lock;
+}Account_t;
+
+typedef struct
+{
+  int acct_num;
+  int balance;
+}Account_SWHW_t;
+
 
 /* Global Variables */
 extern Account_t bank_accts[NUM_ACCOUNTS];
 extern Command_Line_Args_t cmd_line_args;
 extern pthread_mutex_t txn_q_lock;
+extern pthread_mutex_t io_lock;
 extern queue<Txn_t> txn_q;
-//extern atomic<bool> wait_for_txn;
+extern atomic<int> global_version_clock;
+extern Account_SWHW_t swhw_bank_accts[NUM_ACCOUNTS];
 
 
 /* Function Prototypes */

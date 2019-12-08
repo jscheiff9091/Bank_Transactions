@@ -6,7 +6,7 @@ CXXFLAGS = -fgnu-tm -mrtm -Wall -std=c++11 -pthread
 #identify executable dependencies
 
 bank_txn: main.o account_txn.o version_lock.o
-	$(CXX) $(CXXFLAGS) -o bank_txn main.cpp account_txn.cpp version_lock.cpp
+	$(CXX) $(CXXFLAGS)  main.cpp account_txn.cpp version_lock.cpp -o bank_txn
 
 #identify object file dependencies dependencies
 

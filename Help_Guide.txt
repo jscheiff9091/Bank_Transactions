@@ -1,0 +1,57 @@
+Welcome to Jacob Scheiffler's final project help guide!
+
+Options:
+----------------------------------------------------------------
+ -h - You already figured that one out!
+
+ -txn_s filepath - This flag specifies the filepath to the transaction script. There is not
+                   a default script, so this flag must be specified for any transactions to
+		   execute. If the filepath is incorrect program will exit. More details in
+		   the "Transaction Script Format" section below.
+
+ -txn_i option - This flag selects which transaction implementation to use. The five options
+                 are: SGL, Two_Phase, SW_Txn, HW_Txn, and Optimistic. The default is SGL, if
+		 no options are specified.
+
+ -ai filepath - This flag specifies a file with initial account values. The file is formated
+                with one postivie integer per line, the first line corresponding to the 0th
+		account. Examples can be found in the "ai_examples" folder. If no file is
+		specified, all accounts are set to "DEFAULT_BALANCE" specifed in "main.hpp".
+		If the number of values specified is less than "NUM_ACOUNTS", also specified
+		in "main.hpp", remaining accounts set to "DEFAULT_BALANCE", and if too many
+		values are specified only the first NUM_ACCOUNTS values taken.
+
+ -p - This option prints all final account values.
+
+ -o filepath - This flag specifies the file to output all final account values. If not passed,
+               account values are NOT printed to a default file.
+
+ -t_cnt number - This flag specifies the number of threads to use. If this flag is not
+                 specified then this is set to 6 by default.
+
+ --name - In case you forget my name.
+
+
+Example: ./bank_txn -txn_i Two_Phase -txn_s t_scripts/high_contention_transfers.txt -p
+
+
+
+Transaction Script Format:
+----------------------------------------------------------------
+ Example transaction scripts can be found in the "t_scripts" folder. The file is formatted
+ with one transaction per line.
+
+ Transfer: transfer,transfer_from,transfer_to,transfer_ammount   (no spaces!)
+
+      -transfer - command to run a funds transfer
+      -transfer_from - account number of account money is being drawn from
+      -transfer_to - account number of account money is being placed in
+      -transfer_ammount - ammount of money to move from transfer_from to transfer_to
+
+ Balance Query: query,acct1,garbage,garbage                      (no spaces!)
+
+      -query - command to run an account balance query
+      -acct - account number which you would like to query
+      -garbage - any integer value (kept in command for compatible command reads)
+      
+

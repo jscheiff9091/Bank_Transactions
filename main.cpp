@@ -2,6 +2,8 @@
 #include <fstream>
 #include <sstream>
 #include <string.h>
+#include <chrono>
+#include <unistd.h>
 #include "main.hpp"
 #include "account_txn.hpp"
 
@@ -18,6 +20,7 @@ atomic<int> global_version_clock;
 using namespace std;
 
 int main(int argc, char** argv) {
+  std::chrono::high_resolution_clock::time_point start, end;  //Timing variables
   get_cmd_line_args(argc, argv);       //Read in Command Line Args
 
   if(cmd_line_args.name_option) {      //Print name and exit (as specified in previous lab descriptions)
@@ -25,6 +28,22 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  if(cmd_line_args.help_option) {                //Print Help info
+    ifstream help_guide;
+    help_guide.open("Help_Guide.txt");
+
+    if(help_guide.is_open()) {
+      string line;
+      while(getline(help_guide, line)) {
+	cout << line << endl; 
+      }
+      help_guide.close();
+    }
+    else {
+      cout << "You fucked up the filepath bro." << endl;
+    }
+    return 0;
+  }
   init_acct_balances(argv);            //Initialize Accounts
   init_txn_queue(argv);                //Initialize Transaction Queue
 
@@ -38,6 +57,7 @@ int main(int argc, char** argv) {
     pthread_mutex_init(&sgl, NULL);                 //Initialize SGL and Transaction Queue Lock                      
     pthread_mutex_init(&txn_q_lock, NULL);
 
+    start = std::chrono::high_resolution_clock::now();       //Start time
     for(int i = 0; i < cmd_line_args.num_threads; i++) {     //Launch Threads
       pthread_create(&threads[i], NULL, &sgl_main, &sgl);
     }
@@ -46,6 +66,7 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) {     //Join Threads
       pthread_join(threads[i], NULL);
     }
+    end = std::chrono::high_resolution_clock::now();         //Stop time
     
     pthread_mutex_destroy(&sgl);                             //Clean Up
     pthread_mutex_destroy(&txn_q_lock);
@@ -60,6 +81,7 @@ int main(int argc, char** argv) {
     pthread_mutex_init(&txn_q_lock, NULL);
     pthread_mutex_init(&io_lock, NULL);
 
+    start = std::chrono::high_resolution_clock::now();   //Start time
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch threads
       pthread_create(&threads[i], NULL, &two_phase_main, &acct_locks);
     }
@@ -68,6 +90,7 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Join Threads
       pthread_join(threads[i], NULL);
     }
+    end = std::chrono::high_resolution_clock::now();     //Stop time
 
     for(int i = 0; i < NUM_ACCOUNTS+1; i++) {            //Clean up
       pthread_mutex_destroy(&acct_locks[i]);
@@ -81,6 +104,7 @@ int main(int argc, char** argv) {
     pthread_mutex_init(&io_lock, NULL);                   //Initialize I/O Lock and Txn Queue Lock
     pthread_mutex_init(&txn_q_lock, NULL);
 
+    start = std::chrono::high_resolution_clock::now();   //Start time
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch Threads
       pthread_create(&threads[i], NULL, &sw_txn_main, NULL);
     }
@@ -88,7 +112,8 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Join Threads
       pthread_join(threads[i], NULL);
     }
-
+    end = std::chrono::high_resolution_clock::now();     //Stop time
+    
     pthread_mutex_destroy(&io_lock);                     //Clean Up
     pthread_mutex_destroy(&txn_q_lock);
   }
@@ -99,6 +124,7 @@ int main(int argc, char** argv) {
     pthread_mutex_init(&txn_q_lock, NULL);               //Initialize IO lock and transaction queue lock
     pthread_mutex_init(&io_lock, NULL);
 
+    start = std::chrono::high_resolution_clock::now();   //Start time
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Launch Threads
       pthread_create(&threads[i], NULL, &hw_txn_main, &fallback_lock);
     }
@@ -106,7 +132,8 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) { //Join threads
       pthread_join(threads[i], NULL);
     }
-
+    end = std::chrono::high_resolution_clock::now();     //Stop  time
+    
     pthread_mutex_destroy(&txn_q_lock);                  //Clean up
     pthread_mutex_destroy(&io_lock);
   }
@@ -116,7 +143,8 @@ int main(int argc, char** argv) {
     pthread_mutex_init(&txn_q_lock, NULL);               //Initialize variables
     pthread_mutex_init(&io_lock, NULL);
     global_version_clock.store(GLOBAL_VERSION_INITIAL);
-    
+
+    start = std::chrono::high_resolution_clock::now();     //Start time
     for(int i = 0;  i < cmd_line_args.num_threads; i++) {  //Launch Threads
       pthread_create(&threads[i], NULL, &optimistic_main, NULL);
     }
@@ -124,14 +152,18 @@ int main(int argc, char** argv) {
     for(int i = 0; i < cmd_line_args.num_threads; i++) {   //Join Threads
       pthread_join(threads[i], NULL); 
     }
-
+    end = std::chrono::high_resolution_clock::now();      //Stop time
+    
     pthread_mutex_destroy(&txn_q_lock);                   //Clean up
     pthread_mutex_destroy(&io_lock);
 
   }
 
   
-
+  //Print Time
+  std::chrono::nanoseconds time_diff = end - start;
+  cout << "Elapsed Time(ns): " << std::chrono::duration_cast<std::chrono::nanoseconds>(time_diff).count() << endl;
+  
   if(cmd_line_args.print_final_balance) {                //Output account balances if necessary
     if(cmd_line_args.txn_implement == HW_Txn || cmd_line_args.txn_implement == SW_Txn) {
       for(int i = 0; i < NUM_ACCOUNTS; i++) {
@@ -194,6 +226,7 @@ void get_cmd_line_args(int argc, char** argv) {
   cmd_line_args.print_final_balance = false;
   cmd_line_args.output_to_file = false;
   cmd_line_args.outfile_place = 0;
+  cmd_line_args.help_option = false;
 
   //Scan through each argument passed to the command line
   for(int i = 1; i < argc; i++) {
@@ -233,9 +266,9 @@ void get_cmd_line_args(int argc, char** argv) {
       cmd_line_args.num_threads_given = true;
       cmd_line_args.num_threads = stoi(argv[++i]);
     }
-    //else if(!strcmp(argv[i], "-h")) {                   //Print exection instructions
-    //exit after printing
-    //}
+    else if(!strcmp(argv[i], "-h")) {                   //Print exection instructions
+      cmd_line_args.help_option = true;
+    }
     else if(!strcmp(argv[i], "-p")) {                     //Print final account balances
       cmd_line_args.print_final_balance = true;
     }

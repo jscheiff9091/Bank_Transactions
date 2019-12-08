@@ -35,6 +35,7 @@ typedef struct {
   bool print_final_balance;  //Print final account balances?
   bool output_to_file;       //Print final account balances to a specified file?
   int outfile_place;
+  bool help_option;
 }Command_Line_Args_t;
 
 typedef enum {

@@ -10,7 +10,7 @@ Version_Lock::Version_Lock() {
 
 int Version_Lock::lock() {
   bool lock_val = false;
-  while(locked || !locked.compare_exchange_strong(lock_val, LOCKED)) {
+  while(locked.load() || !locked.compare_exchange_strong(lock_val, LOCKED)) {
     lock_val = false;
   }
 

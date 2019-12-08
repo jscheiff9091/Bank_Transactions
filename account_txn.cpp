@@ -39,7 +39,7 @@ void* sgl_main(void* lock) {
 Balance query function for Single Global Lock Transaction Implementation
 */
 int sgl_balance_query(int txn_number, int acct, pthread_mutex_t* sgl) {
-  int acct_balance;
+  int acct_balance = -1;
   pthread_mutex_lock(sgl);                   //Acquire transaction lock
 
   //Check valid bank account number supplied
@@ -161,7 +161,7 @@ void two_phase_transfer(int txn_number, int acct1, int acct2, int xfer_amnt, pth
   }
 
   for(int i = 0; i < NUM_ACCOUNTS; i++) {
-    pthread_mutex_lock(&acct_locks[i]);                 //Acquire account 1 lock
+    pthread_mutex_lock(&acct_locks[i]);                 //Acquire all account lock
   }
 
   if(bank_accts[acct1].balance.load() - xfer_amnt < 0) {         //Account overdrawn
@@ -175,7 +175,7 @@ void two_phase_transfer(int txn_number, int acct1, int acct2, int xfer_amnt, pth
   bank_accts[acct2].balance.store(bank_accts[acct2].balance.load() + xfer_amnt);
 
   for(int i = 0; i < NUM_ACCOUNTS; i++) {
-    pthread_mutex_unlock(&acct_locks[i]);                 //Acquire account 1 lock
+    pthread_mutex_unlock(&acct_locks[i]);                 //Release all account locks
   }
 }
 
